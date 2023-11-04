@@ -1,52 +1,27 @@
 #pragma once
-#include <cstdlib>
-#include <memory>
-#include <string>
 
-template <typename T>
 class NDArray {
-	size_t _ndim = 0;
-	size_t _elems_n = 0;
-	std::shared_ptr<size_t[]> _shape;
-	size_t _shape_shift = 0;
-	std::shared_ptr<T[]> _data;
-	size_t _addr_shift = 0;
+   protected:
+    virtual void* get_data_ptr_v() const = 0;
+    virtual size_t* get_shape() const = 0;
+    virtual size_t get_ndim() const = 0;
 
-	T* get_data_ptr() const;
-	size_t* get_shape() const;
+    // C++ is awesome!
+    void* get_other_data_ptr_v(const NDArray& array) const {
+        return array.get_data_ptr_v();
+    }
 
-	NDArray(const NDArray<T>& parent, size_t slice_idx);
-	
-public:
-	NDArray(size_t ndim, size_t* shape);
-	void fill(const T value);
-	void fill(const T* value_buffer);
-	void copy_data(const NDArray<T>& source);
-	std::string print_shape() const;
-	std::string print() const;
-	template <typename T2>
-	void check_shape(const NDArray<T2>& other) const;
-
-	NDArray<T> operator [](int idx);
-	template <typename T2>
-	NDArray<T>& operator=(const NDArray<T2>& ndarray);
-	template <typename T2>
-	NDArray<T>& operator+=(const NDArray<T2>& ndarray);
-	template <typename T2>
-	NDArray<T> operator+(const NDArray<T2>& ndarray);
-	template <typename T2>
-	NDArray<T>& operator-=(const NDArray<T2>& ndarray);
-	template <typename T2>
-	NDArray<T> operator-(const NDArray<T2>& ndarray);
-	template <typename T2>
-	NDArray<T>& operator=(const T2& value);
-	template <typename T2>
-	NDArray<T>& operator+=(const T2& value);
-	template <typename T2>
-	NDArray<T> operator+(const T2& value);
-	template <typename T2>
-	NDArray<T>& operator-=(const T2& value);
-	template <typename T2>
-	NDArray<T> operator-(const T2& value);
-	~NDArray();
+    void check_shape(const NDArray& other) const {
+        size_t ndim = get_ndim();
+        if (ndim != other.get_ndim()) {
+            throw std::runtime_error("Dimensions mismatch");
+        }
+        size_t* shape1 = get_shape();
+        size_t* shape2 = other.get_shape();
+        for (int i = 0; i < ndim; i++) {
+            if (shape1[i] != shape2[i]) {
+                throw std::runtime_error("Shape mismatch");
+            }
+        }
+    }
 };
