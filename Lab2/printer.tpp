@@ -2,7 +2,7 @@
 #include <string>
 
 template <typename T>
-void print_dim(std::string& res, size_t ndim, size_t* shape, T* data_ptr,
+void print_dim(std::string& res, size_t ndim, const size_t* shape, const T* data_ptr,
                size_t alignment = 1, bool f_last = true) {
     if (ndim == 0) {
         res.append(std::to_string(*data_ptr));

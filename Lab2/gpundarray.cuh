@@ -9,9 +9,10 @@
 #include <string>
 
 #include "cuda_runtime.h"
-// #include "ndarray.h"
 #include "cpundarray.h"
 #include "printer.tpp"
+
+#include <cstdio>
 
 constexpr size_t TILE_SIZE = 32;
 
@@ -97,21 +98,26 @@ __global__ void mlp_kernel_shared(T* A, T* B, T* C, size_t rA, size_t cA, size_t
     size_t row = blockDim.y * blockIdx.y + threadIdx.y;
     size_t col = blockDim.x * blockIdx.x + threadIdx.x;
     T c_sum = 0;
-    sA[threadIdx.y][threadIdx.x] = 0;
-    sB[threadIdx.y][threadIdx.x] = 0;
 
     for (size_t k = 0; k < ceil_int_div(cA, TILE_SIZE); k++) {
-        if (row < rA && threadIdx.x + k * TILE_SIZE < cA) {
+        if (row < rA && ((size_t)threadIdx.x + k * TILE_SIZE) < cA) {
             sA[threadIdx.y][threadIdx.x] = A[row * cA + threadIdx.x + k * TILE_SIZE];
         }
-        if (col < cB && threadIdx.y + k * TILE_SIZE < rB) {
+        else {
+            sA[threadIdx.y][threadIdx.x] = 0;
+        }
+        if (col < cB && ((size_t)threadIdx.y + k * TILE_SIZE) < rB) {
             sB[threadIdx.y][threadIdx.x] = B[(threadIdx.y + k * TILE_SIZE) * cB + col];
+        }
+        else {
+            sB[threadIdx.y][threadIdx.x] = 0;
         }
         __syncthreads();
 
         for (size_t j = 0; j < TILE_SIZE; j++) {
             c_sum += sA[threadIdx.y][j] * sB[j][threadIdx.x];
         }
+        __syncthreads();
     }
     if (row < rA && col < cB) {
         C[row * cB + col] = c_sum;
@@ -143,7 +149,13 @@ class GPUNDArray : public NDArray {
 
         T* get_ptr() { return _ptr; }
 
-        ~GPUMemory() { cudaFree((void*)_ptr); }
+        ~GPUMemory() { 
+            cudaError_t rc = cudaFree((void*)_ptr); 
+            if (rc != cudaSuccess) {
+                std::cerr << std::format("CUDA memory free error: {}",
+                                cudaGetErrorString(rc));
+            }
+        }
     };
 
     size_t _ndim = 0;
@@ -192,19 +204,24 @@ class GPUNDArray : public NDArray {
     void fill(const T* host_buffer) {
         GPUMemory dev_buffer(_elems_n);
         cudaError_t rc =
-            cudaMemcpy(dev_buffer.get_ptr(), host_buffer, _elems_n * sizeof(T),
+            cudaMemcpy(get_data_ptr(), host_buffer, _elems_n * sizeof(T),
                        cudaMemcpyHostToDevice);
         if (rc != cudaSuccess) {
             throw std::runtime_error(std::format("CUDA memory copy error: {}",
                                                  cudaGetErrorString(rc)));
         }
-        fill_helper_buf(get_data_ptr(), _elems_n, dev_buffer.get_ptr());
     }
     void copy_data(const GPUNDArray<T>& source) {
         if (_ndim != source._ndim || _elems_n != source._elems_n) {
             throw std::runtime_error("Elements number mismatch is detected");
         }
-        fill(source._data.get());
+        cudaError_t rc =
+            cudaMemcpy(get_data_ptr(), source._data.get(), _elems_n * sizeof(T),
+                       cudaMemcpyDeviceToDevice);
+        if (rc != cudaSuccess) {
+            throw std::runtime_error(std::format("CUDA memory copy error: {}",
+                                                 cudaGetErrorString(rc)));
+        }
     }
     std::string print_shape() const {
         std::string shape_str("(");
