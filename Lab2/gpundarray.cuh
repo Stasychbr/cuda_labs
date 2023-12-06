@@ -133,6 +133,29 @@ void mlp_helper(T* A, T* B, T* C, size_t rA, size_t cA, size_t rB, size_t cB) {
 }
 
 template <typename T>
+__global__ void mlp_kernel_naive(T* A, T* B, T* C, size_t rA, size_t cA, size_t rB, size_t cB) {
+    size_t row = blockDim.y * blockIdx.y + threadIdx.y;
+    size_t col = blockDim.x * blockIdx.x + threadIdx.x;
+
+    T c_sum = 0;
+
+    if (row < rA && col < cB) {
+        for (size_t i = 0; i < cA; i++) {
+            c_sum += A[row * cA + i] * B[i * cB + col];
+        }
+        C[row * cB + col] = c_sum;
+    }
+}
+
+template <typename T>
+void naive_mlp_helper(T* A, T* B, T* C, size_t rA, size_t cA, size_t rB, size_t cB) {
+    dim3 grid_shape(ceil_int_div(cB, TILE_SIZE), ceil_int_div(rA, TILE_SIZE), 1);
+    dim3 block_shape(TILE_SIZE, TILE_SIZE, 1);
+    mlp_kernel_naive<<<grid_shape, block_shape>>>(A, B, C, rA, cA, rB, cB);
+    dev_sync();
+}
+
+template <typename T>
 class GPUNDArray : public NDArray {
     class GPUMemory {
        public:
@@ -344,6 +367,22 @@ class GPUNDArray : public NDArray {
         size_t res_shape[2] = {shape[0], other_shape[1]};
         GPUNDArray<T> res = GPUNDArray<T>(2, res_shape);
         mlp_helper(get_data_ptr(), ndarray.get_data_ptr(), res.get_data_ptr(), 
+            shape[0], shape[1], other_shape[0], other_shape[1]);
+        return res;
+    }
+
+    GPUNDArray<T> mtx_mlp_naive(const GPUNDArray<T>& ndarray) const {
+        if (_ndim != 2 || ndarray._ndim != 2) {
+            throw std::runtime_error("Matrix multiplication is implemented only for 2 dim matrices");
+        }
+        const size_t* shape = get_shape();
+        const size_t* other_shape = ndarray.get_shape();
+        if (shape[1] != other_shape[0]) {
+            throw std::runtime_error("Shape mismatch for matrix multiplication to be performed");
+        }
+        size_t res_shape[2] = {shape[0], other_shape[1]};
+        GPUNDArray<T> res = GPUNDArray<T>(2, res_shape);
+        naive_mlp_helper(get_data_ptr(), ndarray.get_data_ptr(), res.get_data_ptr(), 
             shape[0], shape[1], other_shape[0], other_shape[1]);
         return res;
     }
